@@ -3,7 +3,6 @@ al 000000 .__ZEROPAGE_RUN__
 al 000044 .__ZEROPAGE_SIZE__
 al 808445 .music_pause
 al 808435 .music_stop
-al 00003C .save_stack
 al 8084B8 .sfx_play
 al 808468 .sfx_play_center
 al 808492 .sfx_play_left

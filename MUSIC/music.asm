@@ -1,9 +1,14 @@
 ;music code for snesgss
 ;written by Shiru
-;modified to work with ca65 by Doug Fraker
+;modified to work with ca65 by Doug Fraker 2020
 ;streaming audio has been removed and
 ;the spc code has been patched to fix a bug
 ;now called snesgssP.exe (p for patch)
+
+;version 2
+;added comments
+;slight change in code
+
 
 .p816
 .smart
@@ -15,14 +20,14 @@
 
 ;notes
 ;cmdStereo, param 8 bit, 0 or 1
-;cmdGlobalVolume, param L = vol 0-127, H = change speed
+;cmdGlobalVolume, param L = vol 0-127, H = how quickly volume fades, 1-255
 ;cmdChannelVolume, param L = vol 0-127, H = which channel (bit field)*
 ;cmdMusicPlay, no param
 ;cmdStopAllSounds, no param
 ;cmdMusicStop, no param
 ;cmdMusicPause, param 8 bit, 0 or 1
-;cmdSfxPlay, 3 params, vol, sfx #, pan
-;cmdLoad, params, apu address, size, src address
+;cmdSfxPlay, 4 params, vol 0-127, sfx #, pan, channel 0-7
+;cmdLoad, params= apu address, size, src address
 ;stream, removed.
 
 ;*bitfield for channel volume, if channel volume command will set
@@ -77,7 +82,7 @@ save_stack:			.res 2
 spc_pointer:		.res 4
 spc_music_load_adr:	.res 2
 
-.globalzp save_stack
+
 
 .segment "CODE"
 
@@ -96,6 +101,7 @@ spc_music_load_adr:	.res 2
 
 
 ;nmi should be disabled
+;AXY16
 ;lda # address of spc700.bin
 ;ldx # bank of spc700.bin
 ;jsl spc_init
@@ -136,8 +142,6 @@ spc_init:
 	jsl spc_command_asm
 	
 	;default is mono
-;	lda #$0001 ;stereo on
-;	jsl spc_stereo
 	
 	plp
 	rtl
@@ -238,6 +242,7 @@ spc_load_data:
 
 	
 ;nmi should be disabled
+;AXY16
 ;lda # address of song
 ;ldx # bank of song
 ;jsl spc_play_song
@@ -286,7 +291,7 @@ spc_play_song:
 	
 	
 ;send a command to the SPC driver	
-;example a16
+;A16
 ;lda #command
 ;sta gss_command
 ;lda #parameter
@@ -325,7 +330,7 @@ spc_command_asm:
 	
 
 ;void spc_stereo(unsigned int stereo);
-;example a16
+;A8 or A16
 ;lda #0 (mono) or 1 (stereo)
 ;jsl spc_stereo
 
@@ -347,20 +352,23 @@ spc_stereo:
 	
 	
 ;void spc_global_volume(unsigned int volume,unsigned int speed);
-;example axy16
-;lda #speed
-;ldx #volume
+;AXY8 or AXY16
+;lda #speed, how quickly the volume fades, 1-255*
+;ldx #volume, 0-127
 ;jsl spc_global_volume
+
+;*255 is default = instant (any value >= 127 is instant)
+;speed = 7 is about 2 seconds, and is a medium fade in/out
 
 spc_global_volume:
 
 	php
 	AXY16	
 	xba
-	and #$ff00
+	and #$ff00 ;speed
 	sta gss_param
 	txa
-	and #$00ff
+	and #$00ff ;volume
 	ora gss_param
 	sta gss_param
 	
@@ -375,8 +383,8 @@ spc_global_volume:
 	
 	
 ;void spc_channel_volume(unsigned int channels,unsigned int volume);
-;example axy16
-;lda #channels 0-7
+;AXY8 or AXY16
+;lda #channels (bit field), see above
 ;ldx #volume   0-127
 ;jsl spc_channel_volume
 
@@ -385,10 +393,10 @@ spc_channel_volume:
 	php
 	AXY16
 	xba
-	and #$ff00
+	and #$ff00 ;channel
 	sta gss_param
 	txa
-	and #$00ff
+	and #$00ff ;volume
 	ora gss_param
 	sta gss_param
 	
@@ -422,7 +430,7 @@ music_stop:
 
 	
 ;void music_pause(unsigned int pause);
-;example a16
+;A8 or A16
 ;lda #0 (unpause) or 1 (pause)
 ;jsl music_pause
 
@@ -464,11 +472,11 @@ sound_stop_all:
 	
 	
 sfx_play_center:
-;axy 8 bit
+;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
-;	y= sfx channel, needs to be > than max song channel
-;assumes you want pan center
+;	y= sfx channel 0-7, needs to be > than max song channel
+;pan center
 
 	php
 	AXY8
@@ -500,11 +508,11 @@ sfx_play_common:
 	
 	
 sfx_play_left:
-;axy 8 bit
+;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
-;	y= sfx channel, needs to be > than max song channel
-;assumes you want pan left
+;	y= sfx channel 0-7, needs to be > than max song channel
+;pan left
 
 	php
 	AXY8
@@ -522,11 +530,11 @@ sfx_play_left:
 
 	
 sfx_play_right:
-;axy 8 bit
+;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
-;	y= sfx channel, needs to be > than max song channel
-;assumes you want pan right
+;	y= sfx channel 0-7, needs to be > than max song channel
+;pan right
 
 	php
 	AXY8
@@ -585,7 +593,7 @@ sfx_play:
 	asl a
 	asl a
 	asl a
-	and #$00f0
+	and #$0070
 	ora #SCMD_SFX_PLAY
 	ora gss_command
 	sta gss_command

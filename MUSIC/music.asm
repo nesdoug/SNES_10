@@ -1,22 +1,29 @@
-;music code for snesgss
+;music code for snesgssQ
 ;written by Shiru
 ;modified to work with ca65 by Doug Fraker 2020
 ;streaming audio has been removed and
-;the spc code has been patched to fix a bug
-;now called snesgssP.exe (p for patch)
+;the spc code has been patched to fix a bug - and add echo
+;now called snesgssQ.exe -
 
-;version 2
+;version 4
+;update 6/2021
 ;added comments
 ;slight change in code
+
+
+LOROM = 1
+;set to zero, if HIROM
 
 
 .p816
 .smart
 
-.global spc_init, spc_load_data, spc_play_song, spc_command_asm
-.global spc_stereo, spc_global_volume, spc_channel_volume, music_stop
-.global music_pause, sound_stop_all, sfx_play, sfx_play_center
-.global sfx_play_left, sfx_play_right
+.global SPC_Init, SPC_Load_Data, SPC_Play_Song, SPC_Command_ASM
+.global SPC_Stereo, SPC_Global_Volume, SPC_Channel_Volume, Music_Stop
+.global Music_Pause, Sound_Stop_All, SFX_Play, SFX_Play_Center
+.global SFX_Play_Left, SFX_Play_Right
+
+.global Echo_Vol, Echo_Addr, Echo_Fb_Fir
 
 ;notes
 ;cmdStereo, param 8 bit, 0 or 1
@@ -72,6 +79,11 @@
 ;.define SCMD_STREAM_START		$0b
 ;.define SCMD_STREAM_STOP		$0c
 ;.define SCMD_STREAM_SEND		$0d
+.define SCMD_ECHO_VOL			$0b
+.define SCMD_ECHO_ADDR			$0c
+.define SCMD_ECHO_FB_FIR		$0d
+
+
 
 .segment "ZEROPAGE"
 
@@ -104,9 +116,9 @@ spc_music_load_adr:	.res 2
 ;AXY16
 ;lda # address of spc700.bin
 ;ldx # bank of spc700.bin
-;jsl spc_init
+;jsl SPC_Init
 
-spc_init:
+SPC_Init:
 
 ;note, first 2 bytes of bin are size
 ;increment the data address by 2
@@ -132,20 +144,26 @@ spc_init:
 	pha
 	lda #$0200 ;address in apu
 	pha
-	jsl spc_load_data
+	jsl SPC_Load_Data
 	ldx save_stack
 	txs ;8
 	
 	lda #SCMD_INITIALIZE
 	sta gss_command
 	stz gss_param
-	jsl spc_command_asm
+;	jsl SPC_Command_ASM
+;	;default is mono
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
-	;default is mono
 	
-	plp
-	rtl
+	
+	
+	
 
+	
+	
 
 ;stack relative
 ;5 = addr in apu, last pha
@@ -153,7 +171,7 @@ spc_init:
 ;9 = src l
 ;11 = src h
 
-spc_load_data:
+SPC_Load_Data:
 
 	php
 	AXY16
@@ -190,9 +208,9 @@ spc_load_data:
 	ldy #0
 	
 @load_loop:
-
-	xba
-	lda [spc_pointer],y
+;A8
+;	xba ;unneccessary
+	lda [spc_pointer] ;,y
 	xba
 	tya
 	
@@ -205,6 +223,18 @@ spc_load_data:
 	bne @3
 	
 	iny
+	A16
+	inc spc_pointer
+	bne @6
+	inc spc_pointer+2
+	
+.if LOROM = 1	
+	lda #$8000
+	sta spc_pointer
+	
+.endif	
+@6:	
+	A8
 	dex
 	bne @load_loop
 	
@@ -245,23 +275,23 @@ spc_load_data:
 ;AXY16
 ;lda # address of song
 ;ldx # bank of song
-;jsl spc_play_song
+;jsl SPC_Play_Song
 
 ;1st 2 bytes of song are size, then song+2 is address of song data
 
-spc_play_song:
+SPC_Play_Song:
 
 	php
 	AXY16
 	sta spc_pointer
 	stx spc_pointer+2
 	
-	jsl music_stop
+	jsl Music_Stop
 	
 	lda #SCMD_LOAD
 	sta gss_command
 	stz gss_param
-	jsl spc_command_asm
+	jsl SPC_Command_ASM
 	
 	AXY16
 	tsx
@@ -277,17 +307,18 @@ spc_play_song:
 ;saved at init	
 	lda spc_music_load_adr ;address in apu
 	pha
-	jsl spc_load_data
+	jsl SPC_Load_Data
 	ldx save_stack
 	txs ;8
 
 	stz gss_param ;zero
 	lda #SCMD_MUSIC_PLAY
 	sta gss_command
-	jsl spc_command_asm
-	plp
-	rtl
-
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
+	
 	
 	
 ;send a command to the SPC driver	
@@ -296,9 +327,9 @@ spc_play_song:
 ;sta gss_command
 ;lda #parameter
 ;sta gss_param
-;jsl spc_command_asm
+;jsl SPC_Command_ASM
 
-spc_command_asm:
+SPC_Command_ASM:
 
 	php
 	A8
@@ -329,12 +360,12 @@ spc_command_asm:
 
 	
 
-;void spc_stereo(unsigned int stereo);
+;void SPC_Stereo(unsigned int stereo);
 ;A8 or A16
 ;lda #0 (mono) or 1 (stereo)
-;jsl spc_stereo
+;jsl SPC_Stereo
 
-spc_stereo:
+SPC_Stereo:
 
 	php
 	AXY16
@@ -344,23 +375,23 @@ spc_stereo:
 	lda #SCMD_STEREO
 	sta gss_command
 	
-	jsl spc_command_asm
-
-	plp
-	rtl
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
 	
 	
-;void spc_global_volume(unsigned int volume,unsigned int speed);
+;void SPC_Global_Volume(unsigned int volume,unsigned int speed);
 ;AXY8 or AXY16
 ;lda #speed, how quickly the volume fades, 1-255*
 ;ldx #volume, 0-127
-;jsl spc_global_volume
+;jsl SPC_Global_Volume
 
 ;*255 is default = instant (any value >= 127 is instant)
 ;speed = 7 is about 2 seconds, and is a medium fade in/out
 
-spc_global_volume:
+SPC_Global_Volume:
 
 	php
 	AXY16	
@@ -375,20 +406,20 @@ spc_global_volume:
 	lda #SCMD_GLOBAL_VOLUME
 	sta gss_command
 	
-	jsl spc_command_asm
-
-	plp
-	rtl
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
 	
 	
-;void spc_channel_volume(unsigned int channels,unsigned int volume);
+;void SPC_Channel_Volume(unsigned int channels,unsigned int volume);
 ;AXY8 or AXY16
 ;lda #channels (bit field), see above
 ;ldx #volume   0-127
-;jsl spc_channel_volume
+;jsl SPC_Channel_Volume
 
-spc_channel_volume:
+SPC_Channel_Volume:
 
 	php
 	AXY16
@@ -403,17 +434,17 @@ spc_channel_volume:
 	lda #SCMD_CHANNEL_VOLUME
 	sta gss_command
 	
-	jsl spc_command_asm
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
+	
+	
+	
+;void Music_Stop(void);
+;jsl Music_Stop
 
-	plp
-	rtl
-	
-	
-	
-;void music_stop(void);
-;jsl music_stop
-
-music_stop:
+Music_Stop:
 
 	php
 	AXY16
@@ -422,19 +453,19 @@ music_stop:
 	sta gss_command
 	stz gss_param
 	
-	jsl spc_command_asm
-	
-	plp
-	rtl
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
 
 	
-;void music_pause(unsigned int pause);
+;void Music_Pause(unsigned int pause);
 ;A8 or A16
 ;lda #0 (unpause) or 1 (pause)
-;jsl music_pause
+;jsl Music_Pause
 
-music_pause:
+Music_Pause:
 
 	php
 	AXY16
@@ -444,17 +475,16 @@ music_pause:
 	lda #SCMD_MUSIC_PAUSE
 	sta gss_command
 	
-	jsl spc_command_asm
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
-	plp
-	rtl
 	
-	
-	
-;void sound_stop_all(void);
-;jsl sound_stop_all
+;void Sound_Stop_All(void);
+;jsl Sound_Stop_All
 
-sound_stop_all:
+Sound_Stop_All:
 
 	php
 	AXY16
@@ -463,15 +493,14 @@ sound_stop_all:
 	sta gss_command
 	stz gss_param
 	
-	jsl spc_command_asm
-	
-	plp
-	rtl
-	
-	
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
 	
-sfx_play_center:
+	
+SFX_Play_Center:
 ;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
@@ -489,7 +518,7 @@ sfx_play_center:
 	
 	lda #128 ;pan center
 	pha
-sfx_play_common:
+SFX_Play_common:
 	lda spc_temp+1 ;volume 0-127
 	and #$00ff
 	pha
@@ -499,7 +528,7 @@ sfx_play_common:
 	tya ;channel, needs to be > the song channels
 	and #$0007
 	pha
-	jsl sfx_play
+	jsl SFX_Play
 	ldx save_stack
 	txs
 	plp
@@ -507,7 +536,7 @@ sfx_play_common:
 
 	
 	
-sfx_play_left:
+SFX_Play_Left:
 ;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
@@ -525,11 +554,11 @@ sfx_play_left:
 	
 	lda #0 ;pan left
 	pha
-	jmp	sfx_play_common
+	jmp	SFX_Play_common
 	
 
 	
-sfx_play_right:
+SFX_Play_Right:
 ;AXY8 or AXY16
 ;in a= sfx #
 ;	x= volume 0-127
@@ -547,12 +576,12 @@ sfx_play_right:
 	
 	lda #255 ;pan right
 	pha
-	jmp	sfx_play_common	
+	jmp	SFX_Play_common	
 
 
 
 	
-;void sfx_play(unsigned int chn,unsigned int sfx,unsigned int vol,int pan);
+;void SFX_Play(unsigned int chn,unsigned int sfx,unsigned int vol,int pan);
 ;stack relative
 ;5 = chn last in
 ;7 = volume
@@ -560,7 +589,7 @@ sfx_play_right:
 ;11 = pan
 ;NOTE - use the other functions above
 
-sfx_play:
+SFX_Play:
 
 	php
 	AXY16
@@ -598,25 +627,112 @@ sfx_play:
 	ora gss_command
 	sta gss_command
 
-	jsl spc_command_asm
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 
-	plp
-	rtl
+
+
+
+
+
+;void SPC_Stream_Update(void);
+
+SPC_Stream_Update:
+
+; streaming functions have been removed
+
+
+
+;adding some echo functions - doug fraker 2021
+
+;AXY8 or AXY16
+;lda #echo volume 0-$7f (0 = off)
+;ldx #which channels on? (bit field, each bit = a channel)
+;jsl Echo_Vol
+Echo_Vol:
+	php
+	AXY16
+	and #$007f ;vol
+	sta spc_temp
+	txa
+	and #$00ff ;which channels
+	xba
+	ora spc_temp
+	sta gss_param
+	lda #SCMD_ECHO_VOL
+	sta gss_command
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
 	
 
 
 
+;AXY8 or AXY16
+;lda #echo start address highbyte
+;ldx #echo delay (0-$f), should be 0-5
+;jsl Echo_Addr
 
+; this is very important! echo vol must be off before changing this
+; echo address needs to be > the last spc file byte
+; delay is $800 bytes x val, and needs to be small enough
+; to fit in the remaining RAM space (and shouldn't use
+; that last $800 since it's part of the boot loader ROM)
+; Note: a delay of 0 does actually function as a VERY short 
+; echo delay, but probably won't sound very good.
 
-
-;void spc_stream_update(void);
-
-spc_stream_update:
-
-; couldn't find any examples of this
-; just cut it.
-
-
-
-
-
+Echo_Addr:
+	php
+	AXY16
+	and #$00ff
+	sta spc_temp
+	txa
+	and #$00ff
+	xba
+	ora spc_temp
+	sta gss_param
+	lda #SCMD_ECHO_ADDR
+	sta gss_command
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+	jmp SPC_Common_End
+	
+	
+;AXY8 or AXY16
+;lda #FIR filter settings (0-3)
+;  0 = simple echo
+;  1 = multi tap echo
+;  2 = low pass echo
+;  3 = high pass echo
+;ldx #echo feedback volume (0-$7f)
+;jsl Echo_Fb_Fir	
+Echo_Fb_Fir:
+	php
+	AXY16
+	and #$0003 ;fir
+	sta spc_temp
+	txa
+	and #$007f
+	xba
+	ora spc_temp
+	sta gss_param
+	lda #SCMD_ECHO_FB_FIR
+	sta gss_command
+;	jsl SPC_Command_ASM
+;	plp
+;	rtl
+;	jmp SPC_Common_End --- fall through ---
+	
+	
+	
+SPC_Common_End:
+	jsl SPC_Command_ASM
+	plp
+	rtl
+	
+	
+	
